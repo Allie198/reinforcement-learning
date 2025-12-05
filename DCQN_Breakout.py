@@ -157,6 +157,14 @@ def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99
     return net, episode_rewards
 
 
+def start_with_fire(env, fire_action=1, steps=3):
+    obs, info = env.reset()
+    for _ in range(steps):
+        obs, _, terminated, truncated, info = env.step(fire_action)
+        if terminated or truncated:
+            obs, info = env.reset()
+    return obs,info
+
 def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_stack=4):
     env = gym.make(env_id, render_mode="human")
     n_actions = env.action_space.n
@@ -164,7 +172,9 @@ def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_st
     net.load_state_dict(torch.load(model_path, map_location=DEVICE))
     net.eval()
 
-    obs, _ = env.reset()
+    obs, info = start_with_fire(env)
+    lives = info.get("lives",0)
+
     frame = preprocess(obs)
     state = np.stack([frame] * frame_stack, axis=0)
 
@@ -176,8 +186,20 @@ def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_st
             _, act_v = torch.max(q_vals, dim=1)
             action = int(act_v.item())
 
-        next_obs, reward, terminated, truncated, _ = env.step(action)
+        next_obs, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
+
+        new_lives = info.get("lives",lives)
+        life_lost = new_lives < lives
+        lives = new_lives
+
+        if life_lost and not done:
+            for _ in range(3):
+                next_obs, _, terminated2, truncated2, info = env.step(1)  # 1 = FIRE
+                if terminated2 or truncated2:
+                    done = True
+                    break
+
         total_reward += reward
 
         next_frame = preprocess(next_obs)
@@ -188,9 +210,11 @@ def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_st
         if done:
             print("Episode reward:", total_reward)
             total_reward = 0.0
-            obs, _ = env.reset()
+            obs, _ = start_with_fire(env)
+            lives = info.get("lives",0)
             frame = preprocess(obs)
             state = np.stack([frame] * frame_stack, axis=0)
 
 if __name__ == '__main__':
     play_trained_model()
+
