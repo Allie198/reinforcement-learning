@@ -135,11 +135,13 @@ def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99
         q_values = net(states_v).gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            next_q_values = target(next_states_v).max(1)[0]
-            next_q_values[done_mask] = 0.0
-            expected_q_values = rewards_v + gamma * next_q_values
+            next_q_online = net(next_states_v)
+            next_actions = next_q_online.argmax(dim=1)
+            next_q_target = target(next_states_v).gather (1, next_actions.unsqueeze(-1)).squeeze(1)
+            next_q_target[done_mask] = 0.0
+            expected_q_values = rewards_v + gamma * next_q_target
 
-        loss = nn.MSELoss()(q_values, expected_q_values)
+        loss = nn.SmoothL1Loss()(q_values, expected_q_values)
 
         optimizer.zero_grad()
         loss.backward()
@@ -158,8 +160,8 @@ def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99
 def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_stack=4):
     env = gym.make(env_id, render_mode="human")
     n_actions = env.action_space.n
-    net = torch.load(model_path, map_location=DEVICE,weights_only=False)
-    net.to(DEVICE)
+    net = DCQN(frame_stack, n_actions).to(DEVICE)
+    net.load_state_dict(torch.load(model_path, map_location=DEVICE))
     net.eval()
 
     obs, _ = env.reset()
@@ -191,7 +193,4 @@ def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_st
             state = np.stack([frame] * frame_stack, axis=0)
 
 if __name__ == '__main__':
-    trained_net, episode_rewards = train()
-    torch.save(trained_net.state_dict(), "dcqn.pth")
-    print("Trained net saved")
     play_trained_model()
