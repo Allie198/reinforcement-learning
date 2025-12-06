@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import ale_py
+import os
 
 gym.register_envs(ale_py)
 
@@ -40,11 +41,11 @@ class ReplayBuffer(object):
     def __len__(self):
         return len(self.buffer)
 
-class DCQN(nn.Module):
+class Dueling_DCQN(nn.Module):
     def __init__(self, obs_channels, n_actions):
         super().__init__()
 
-        self.net = nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv2d(obs_channels, 32, kernel_size=8, stride=4),
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2),
@@ -53,16 +54,29 @@ class DCQN(nn.Module):
             nn.ReLU(),
         )
 
-        self.linear = nn.Sequential(
+        self.value = nn.Sequential(
             nn.Linear(64 * 7 * 7, 512),
             nn.ReLU(),
-            nn.Linear(512, n_actions),
+            nn.Linear(512, 1),
+        )
+
+        self.advantage = nn.Sequential(
+            nn.Linear(64 * 7 * 7, 512),
+            nn.ReLU(),
+            nn.Linear(512, n_actions)
+
         )
 
     def forward(self, z):
-        z = self.net(z)
+        z = self.conv(z)
         z = z.view(z.size(0), -1)
-        return self.linear(z)
+
+        value = self.value(z)
+        advantage = self.advantage(z)
+
+        q_vals = value + advantage - advantage.mean(dim=1, keepdim=True)
+        return q_vals
+
 
 def select_action(net, state, epsilon, n_actions):
     if random.random() < epsilon:
@@ -75,13 +89,13 @@ def select_action(net, state, epsilon, n_actions):
         return int(act_v.item())
 
 def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99, replay_size=100000,
-          learning_rate=1e-4, sync_target_frames=1000, replay_start_size=50000, epsilon_start=1.0,
-          epsilon_final=0.01, epsilon_decay_last_frame=1000000, frame_stack=4):
+          learning_rate=2e-4, sync_target_frames=1000, replay_start_size=50000, epsilon_start=1.0,
+          epsilon_final=0.01, epsilon_decay_last_frame=100000, frame_stack=4, model_path="dcqn.pth"):
 
     env = gym.make(env_id, render_mode=None)
     n_actions = env.action_space.n
-    net = DCQN(frame_stack, n_actions).to(DEVICE)
-    target = DCQN(frame_stack, n_actions).to(DEVICE)
+    net = Dueling_DCQN(frame_stack, n_actions).to(DEVICE)
+    target = Dueling_DCQN(frame_stack, n_actions).to(DEVICE)
     target.load_state_dict(net.state_dict())
     optimizer = optim.Adam(net.parameters(), lr=learning_rate)
     buffer = ReplayBuffer(replay_size)
@@ -114,7 +128,10 @@ def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99
         total_reward += reward
 
         if done:
-            obs, _ = env.reset()
+            obs, info = env.reset()
+            if info.get("lives") is not None:
+                obs, _, _, _ ,_ = env.step(1)
+
             frame = preprocess(obs)
             state = np.stack([frame] * frame_stack, axis=0)
             episode_rewards.append(total_reward)
@@ -153,6 +170,8 @@ def train(env_id="ALE/Breakout-v5", num_frames=200000, batch_size=32, gamma=0.99
             print(f"Target network updated at frame {frame_idx}")
 
 
+    torch.save(net.state_dict(), model_path)
+
     env.close()
     return net, episode_rewards
 
@@ -168,7 +187,7 @@ def start_with_fire(env, fire_action=1, steps=3):
 def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_stack=4):
     env = gym.make(env_id, render_mode="human")
     n_actions = env.action_space.n
-    net = DCQN(frame_stack, n_actions).to(DEVICE)
+    net = Dueling_DCQN(frame_stack, n_actions).to(DEVICE)
     net.load_state_dict(torch.load(model_path, map_location=DEVICE))
     net.eval()
 
@@ -216,5 +235,9 @@ def play_trained_model(model_path="dcqn.pth", env_id="ALE/Breakout-v5", frame_st
             state = np.stack([frame] * frame_stack, axis=0)
 
 if __name__ == '__main__':
-    play_trained_model()
+    if os.path.exists('/dcqn.pth'):
+        play_trained_model()
+    else:
+        train()
+        play_trained_model()
 
