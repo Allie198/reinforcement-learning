@@ -276,11 +276,10 @@ def play(model_path):
             total_reward += reward
             steps += 1
             
-        print(f"Test Episode {episode+1}: Reward {total_reward:.2f}, Steps {steps}")
+        print(f"Episode {episode+1}: Reward {total_reward:.2f}, Steps {steps}")
         
     env.close()
 
 if __name__ == "__main__":
-    train()
     play("sac_final.pth")
 
