@@ -58,6 +58,6 @@ consistency** rather than black-box usage.
 **Algorithm:** SAC
 
 - Maximum entropy reinforcement learning
-- Twin Q-networks to reduce overestimation bias
+- Double Q-networks to reduce overestimation bias
 - Automatic entropy coefficient tuning
 - Continuous action space control
