@@ -12,7 +12,7 @@ consistency** rather than black-box usage.
 
 ## Implemented Algorithms & Environments
 
-### Deep Convolutional Q-Network (DCQN) – Atari Breakout
+### Double Dueling Deep Convolutional Q-Network (D3CQN) – Atari Breakout
 
 **Environment:** `ALE/Breakout-v5`  
 **Algorithm:** DCQN (DQN with CNN-based state encoder)
